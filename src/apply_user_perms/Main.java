@@ -2,6 +2,8 @@ package apply_user_perms;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -10,9 +12,11 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Map;
 
 import org.newsclub.net.unix.AFUNIXSocket;
 import org.newsclub.net.unix.AFUNIXSocketAddress;
+import org.yaml.snakeyaml.Yaml;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -21,8 +25,8 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
 public class Main {
+	
 	public static void main(String[] args){
-		
 		ArrayList<String> players = getWhitelistedPlayers();
 		
 		try {
@@ -30,6 +34,37 @@ public class Main {
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
+		promoteDonors();
+	}
+	
+	@SuppressWarnings("unchecked")
+	private static void promoteDonors(){
+		try {
+			FileInputStream stream = new FileInputStream(new File("permissions_old.yml"));
+			Yaml yaml = new Yaml();
+			Map<String, Object> map = (Map<String, Object>) yaml.load(stream);
+			Map<String, Object> users = (Map<String, Object>) map.get("users");
+			for (String key : users.keySet()){
+				Map<String, Object> user = (Map<String, Object>) users.get(key);
+				ArrayList<String> groups = (ArrayList<String>) user.get("group");
+				Map<String, String> options = (Map<String, String>) user.get("options");
+				if (groups == null){
+					continue;
+				}
+				if (groups.contains("trusted")){
+					String username = "";
+					if (options == null){
+						username = key;
+					} else {
+						username = options.get("name");
+					}
+					System.out.println(username);
+					promoteTrusted(username);
+				}
+			}
+		} catch (FileNotFoundException e) {
+			System.err.println("File not found!");
+		} 
 	}
 	
 	private static void applyPerms(ArrayList<String> players) throws InterruptedException{
@@ -51,19 +86,33 @@ public class Main {
 	}
 	
 	private static boolean applyTo(String username){
-		String socketFilename = "plugins/Spinalpack/sockets/command.sock";
 		try {
-			AFUNIXSocket socket = AFUNIXSocket.connectTo(new AFUNIXSocketAddress(new File(socketFilename)));
-			OutputStream os = socket.getOutputStream();
-			String command = "pex user " + username + " group add user";
-			System.out.println("Running command: " + command);
-			os.write(command.getBytes());
-			socket.close();
+			sendCommand("pex user " + username + " group add user");
 		} catch (IOException e) {
 			e.printStackTrace();
 			return false;
 		}
 		return true;
+	}
+	
+	private static boolean promoteTrusted(String username){
+		try {
+			sendCommand("pex user " + username + " group remove trusted");
+			sendCommand("pex promote " + username + " automatic");
+		} catch (IOException e) {
+			e.printStackTrace();
+			return false;
+		}
+		return true;
+	}
+	
+	private static void sendCommand(String command) throws IOException{
+		String socketFilename = "plugins/Spinalpack/sockets/command.sock";
+		AFUNIXSocket socket = AFUNIXSocket.connectTo(new AFUNIXSocketAddress(new File(socketFilename)));
+		OutputStream os = socket.getOutputStream();
+		System.out.println("Running command: " + command);
+		os.write(command.getBytes());
+		socket.close();
 	}
 	
 	private static String getUsername(String uuid){
